@@ -2,7 +2,8 @@ import openai
 import json
 import os
 import logging
-from typing import Dict, Any
+import datetime
+from typing import Dict, Any, Optional
 
 # Configure logging
 logging.basicConfig(
@@ -155,6 +156,106 @@ class OpenAIAgent:
         
         return "\n".join(output)
 
+    def edit_code_file(self, filepath: str, instruction: str) -> str:
+        """
+        Beolvas egy Python fájlt, GPT-4 segítségével módosítja az instrukció alapján,
+        majd elmenti az eredményt _ai.py kiterjesztéssel.
+        
+        Args:
+            filepath (str): A módosítandó Python fájl elérési útja
+            instruction (str): Az instrukció a kód módosítására
+            
+        Returns:
+            str: Az új fájl elérési útja
+        """
+        try:
+            # Fájl beolvasása
+            with open(filepath, 'r', encoding='utf-8') as f:
+                file_content = f.read()
+            
+            # Új fájlnév generálása
+            directory, filename = os.path.split(filepath)
+            filename_without_ext, _ = os.path.splitext(filename)
+            new_filepath = os.path.join(directory, f"{filename_without_ext}_ai.py")
+            
+            # Prompt összeállítása a GPT-4 számára
+            prompt = f"""Ez egy Python fájl tartalma. Kérlek végezd el a következő módosítást: {instruction}. Add vissza az új kódot Python fájl formájában, kommentek nélkül.
+
+            Python fájl tartalma:
+            ```python
+            {file_content}
+            ```
+            """
+
+            # GPT-4 API hívás
+            client = openai.OpenAI()
+            response = client.chat.completions.create(
+                model="gpt-4",
+                messages=[
+                    {"role": "system", "content": "Te egy Python kódfejlesztő AI asszisztens vagy. "
+                                                 "A feladatod a kapott Python kód módosítása a megadott instrukciók alapján."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.2
+            )
+            
+            # Csak a kódot mentsük el, a magyarázat nélkül
+            ai_response = response.choices[0].message.content
+            
+            # Kód kinyerése a válaszból (ha code blockban van)
+            code_content = ai_response
+            if "```python" in ai_response and "```" in ai_response:
+                # Kód kinyerése a python code block-ból
+                code_blocks = ai_response.split("```")
+                for i, block in enumerate(code_blocks):
+                    if block.strip().startswith("python") or (i > 0 and code_blocks[i-1].strip().endswith("python")):
+                        code_content = block.replace("python", "").strip()
+                        break
+            
+            # Új fájl mentése
+            with open(new_filepath, 'w', encoding='utf-8') as f:
+                f.write(code_content)
+            
+            # Esemény naplózása az openai_agent.log fájlba (már konfigurálva van)
+            logger.info(f"Kód módosítás végrehajtva: {filepath} -> {new_filepath} | Instrukció: {instruction}")
+            
+            # Esemény naplózása a copilot_journal.md fájlba
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            journal_entry = f"""
+## {timestamp} - Kód Módosítás
+
+- **Eredeti fájl:** `{filepath}`
+- **Új fájl:** `{new_filepath}`
+- **Instrukció:** {instruction}
+- **Státusz:** ✅ Sikeres
+            """
+            
+            # Létrehozzuk vagy hozzáfűzzük a journal fájlt
+            with open("copilot_journal.md", "a", encoding='utf-8') as f:
+                f.write(journal_entry)
+            
+            return new_filepath
+            
+        except Exception as e:
+            error_msg = f"Hiba a kód módosítása során: {str(e)}"
+            logger.error(error_msg)
+            
+            # Hiba naplózása a copilot_journal.md fájlba
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            journal_entry = f"""
+## {timestamp} - Kód Módosítás
+
+- **Eredeti fájl:** `{filepath}`
+- **Instrukció:** {instruction}
+- **Státusz:** ❌ Sikertelen
+- **Hiba:** {str(e)}
+            """
+            
+            # Létrehozzuk vagy hozzáfűzzük a journal fájlt
+            with open("copilot_journal.md", "a", encoding='utf-8') as f:
+                f.write(journal_entry)
+            
+            raise Exception(error_msg)
 
 if __name__ == "__main__":
     # Példa használat
