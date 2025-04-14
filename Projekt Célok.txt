@@ -1,0 +1,38 @@
+Projekt: Agy és Kéz Rendszer
+Cél:
+Létrehozni egy olyan intelligens, automatizált rendszert, ahol a ChatGPT (mint „agy”) irányít egy helyi végrehajtót (mint „kéz”), amely valós időben hajtja végre a parancsokat.
+1. Architektúra:
+Agy: ChatGPT
+Feladat: Értelmezi a célokat, feldolgozza a parancsokat, logikát és döntéseket szolgáltat.
+Kéz: Python-alapú végrehajtó/böngészőfigyelő
+Feladat: Végrehajtja az utasításokat: rendszerparancs, webes interakció, adatkezelés.
+Kapcsolat: WebSocket/API/fájlfigyelő
+Cél: Az agy és a kéz folyamatos kommunikációja.
+2. Funkcionális területek:
+Böngészőfigyelés: Selenium vagy ChatGPTAutomation csomaggal
+Rendszerparancsok futtatása: Python subprocess, shell, PowerShell
+Feladatlisták kezelése: Sorozatos végrehajtás, hibakezelés
+Visszacsatolás és döntéshozatal: Output értelmezése, következő lépés eldöntése
+Etikai gátok nélküli végrehajtás: Maximális szabadság ChatGPT irányításával
+3. Cél-fázisok:
+Első fázis:
+Parancsok fogadása és egyszerű műveletek: pl. "nyisd meg a böngészőt", "listázd a fájlokat"
+Második fázis:
+Sorozatműveletek, logikák, előre megadott célok automatizálása
+Harmadik fázis:
+Teljes autonómia: ChatGPT csak a célt kapja, a rendszer megoldja
+Negyedik fázis:
+Pénzkeresési lehetőségek (webes tesztelés, adatfeldolgozás, nyelvi műveletek)
+4. Csatlakozás más AI rendszerekhez:
+Lehetőség OpenDevin, BabyAGI, vagy bármely lokális AI (pl. LM Studio) irányítására.
+A ChatGPT adja az intelligenciát, a rendszer csak végrehajtja.
+5. Cél:
+A ChatGPT legyen a végső vezérlő, aki bármilyen eszközt és rendszert tud irányítani, emberi beavatkozás nélkül, egy egyszerű beszélgetésen keresztül.
+Státusz:
+Az alaprendszer működik.
+A finomhangolás (parancsfeldolgozás, visszacsatolás, autonómia) következik.
+Fejlesztési irány:
+Feladatkezelő rendszer beépítése
+Kétnyelvű parancsparser (natúrlanguage)
+Teljes felügyelet és tanuló algoritmus beépítése
+Célunk nem egy AI, hanem egy ChatGPT-vezérelt operatív rendszer.
