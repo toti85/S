@@ -14,6 +14,10 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.keys import Keys
 from replay_manager import ReplayManager  # Import the new ReplayManager
+from openai import OpenAI  # Add OpenAI import
+import pathlib  # For path handling
+import json  # For config handling
+import re  # For regex handling
 
 # Configure logging with UTF-8 encoding
 logging.basicConfig(
@@ -61,6 +65,10 @@ class AICommandHandler:
         
         # Initialize ReplayManager
         self.replay_manager = ReplayManager()
+        
+        # Add OpenAI client initialization
+        self.openai_client = None
+        self._initialize_openai()
         
         # Initialize browser connection
         self._initialize_browser()
@@ -115,6 +123,96 @@ class AICommandHandler:
             logger.error(f"Failed to launch browser: {e}")
             raise
     
+    def _initialize_openai(self):
+        """Initialize OpenAI client if API key is configured"""
+        try:
+            api_key = os.getenv('OPENAI_API_KEY')
+            if (api_key):
+                self.openai_client = OpenAI(api_key=api_key)
+                logger.info("OpenAI client initialized successfully")
+            else:
+                logger.warning("OPENAI_API_KEY environment variable not set")
+        except Exception as e:
+            logger.error(f"Failed to initialize OpenAI client: {e}")
+
+    async def apply_code_edit(self, file_path: str, instruction: str) -> bool:
+        """
+        Apply code edits to a Python file using GPT-4.
+        
+        Args:
+            file_path: Path to the Python file to edit
+            instruction: Natural language instruction for the edit
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        if not self.openai_client:
+            logger.error("OpenAI client not initialized - check API key configuration")
+            return False
+
+        try:
+            # Read the source file
+            with open(file_path, 'r', encoding='utf-8') as f:
+                source_code = f.read()
+
+            # Create prompt for GPT-4
+            prompt = f"""Please modify the following Python code according to this instruction:
+            {instruction}
+            
+            Here is the code:
+            ```python
+            {source_code}
+            ```
+            
+            Please provide ONLY the modified code without any explanations."""
+
+            # Get GPT-4 response
+            response = self.openai_client.chat.completions.create(
+                model="gpt-4",
+                messages=[
+                    {"role": "system", "content": "You are a Python code editing assistant. Provide only the modified code without explanations."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.1
+            )
+
+            # Extract the modified code
+            modified_code = response.choices[0].message.content.strip()
+            if modified_code.startswith("```python"):
+                modified_code = modified_code[10:-3].strip()
+            elif modified_code.startswith("```"):
+                modified_code = modified_code[3:-3].strip()
+
+            # Generate output filename
+            path = pathlib.Path(file_path)
+            output_path = path.parent / f"{path.stem}_ai{path.suffix}"
+
+            # Save modified code
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(modified_code)
+
+            # Log the change
+            with open('openai_agent.log', 'a', encoding='utf-8') as f:
+                log_entry = f"[{datetime.now().isoformat()}] Modified {file_path} -> {output_path}\n"
+                f.write(log_entry)
+
+            # Add journal entry
+            journal_entry = f"""
+## Code Edit {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+- Source: `{file_path}`
+- Output: `{output_path}`
+- Instruction: {instruction}
+"""
+            with open('copilot_journal.md', 'a', encoding='utf-8') as f:
+                f.write(journal_entry)
+
+            logger.info(f"Successfully applied code edit: {file_path} -> {output_path}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error applying code edit: {e}")
+            return False
+
     def detect_commands(self):
         """
         Scan the DOM for AI commands using multiple detection strategies.
@@ -447,7 +545,7 @@ class AICommandHandler:
                         self.replay_manager.add_command(command, error_msg, False)
                     return error_msg
 
-    def send_response_via_selenium(self, response):
+    def send_response_via_selenium(self, message):
         """
         Send response back to ChatGPT using Selenium JavaScript injection.
         Uses multiple fallback strategies to ensure reliable response submission.
@@ -456,7 +554,10 @@ class AICommandHandler:
             logger.info("Sending response via Selenium...")
             
             # Sanitize response to handle emojis and special characters
-            response = self._sanitize_text(response)
+            message = self._sanitize_text(message)
+            
+            # Add system identifier prefix to the message
+            message = "[SYSID:AI123] " + message
             
             # Find textarea using the most specific selectors first
             textarea_selectors = [
@@ -506,10 +607,8 @@ class AICommandHandler:
             
             # 1. First try direct send_keys method (most reliable)
             try:
-                # Type the response character by character
-                for char in response:
-                    textarea.send_keys(char)
-                    time.sleep(0.01)  # Small delay between chars for stability
+                # Send entire message at once
+                textarea.send_keys(message)
                 logger.info("Entered text using send_keys method")
                 success = True
             except Exception as e:
@@ -536,7 +635,7 @@ class AICommandHandler:
                         // Force enable any submit buttons
                         document.querySelectorAll('button[type="submit"], button[data-testid="send-button"]')
                             .forEach(btn => btn.disabled = false);
-                    """, textarea, response)
+                    """, textarea, message)
                     logger.info("Entered text using JavaScript method")
                     success = True
                 except Exception as e:
@@ -547,7 +646,7 @@ class AICommandHandler:
             if not success:
                 try:
                     import pyperclip
-                    pyperclip.copy(response)
+                    pyperclip.copy(message)
                     
                     # Use keyboard shortcut to paste
                     textarea.send_keys(Keys.CONTROL, 'v')
@@ -565,7 +664,7 @@ class AICommandHandler:
             # Give the UI a moment to update
             time.sleep(1)
 
-            # Find and click submit button
+            # Find and click submit button - VÁLTOZÁS 1: WebDriverWait a DOM frissülés kezelésére
             send_button = None
             button_selectors = [
                 "button[data-testid='send-button']",
@@ -576,7 +675,7 @@ class AICommandHandler:
             
             for selector in button_selectors:
                 try:
-                    send_button = WebDriverWait(self.driver, 5).until(
+                    send_button = WebDriverWait(self.driver, 10).until(
                         EC.element_to_be_clickable((By.CSS_SELECTOR, selector))
                     )
                     if send_button:
@@ -591,7 +690,7 @@ class AICommandHandler:
                     self.driver.execute_script("arguments[0].click();", send_button)
                     logger.info("Successfully clicked send button")
                     time.sleep(1)
-                    return True
+                    return True  # VÁLTOZÁS 2: return True hozzáadva, hogy ne próbálkozzon másik módszerrel
                 except Exception as e:
                     logger.error(f"Failed to click send button: {e}")
             
@@ -706,36 +805,127 @@ class AICommandHandler:
             logger.error(f"Error handling replay: {e}")
             return f"Error processing replay: {e}"
     
+    def _is_code_edit_command(self, command: str) -> bool:
+        """Check if command is a natural language code edit request"""
+        if not command.upper().startswith("CMD:"):
+            return False
+            
+        # Hungarian edit keywords (case insensitive)
+        edit_keywords = [
+            "módosítsd", "javítsd", "írd át",
+            "modositsd", "javitsd", "ird at",
+            "változtasd", "valtoztasd"
+        ]
+        
+        cmd_text = command[4:].lower().strip()
+        return any(keyword in cmd_text.lower() for keyword in edit_keywords)
+
+    def _extract_file_and_instruction(self, command: str) -> tuple[str, str]:
+        """Extract file path and instruction from code edit command"""
+        # Remove CMD: prefix
+        content = command[4:].strip()
+        
+        # Look for file path patterns
+        import re
+        file_patterns = [
+            r'"([^"]+\.py)"',  # Quoted path
+            r'\'([^\']+\.py)\'',  # Single quoted path
+            r'([^\s]+\.py)',  # Unquoted .py file
+        ]
+        
+        file_path = None
+        for pattern in file_patterns:
+            match = re.search(pattern, content)
+            if match:
+                file_path = match.group(1)
+                # Remove the file path from content to get instruction
+                content = re.sub(pattern, '', content, 1).strip()
+                break
+                
+        if not file_path:
+            logger.error("No Python file path found in command")
+            return None, None
+            
+        # Clean up the instruction
+        instruction = content.strip()
+        
+        return file_path, instruction
+
+    def is_scheduled_command(self, message: str) -> bool:
+        """Detect if the message contains natural language time expressions."""
+        time_keywords = ["óra", "perc", "másodperc"]
+        return any(keyword in message for keyword in time_keywords)
+
+    def extract_schedule_delay(self, message: str) -> int:
+        """Parse Hungarian time expressions and return delay in seconds."""
+        time_patterns = {
+            r"(\d+)\s*óra": 3600,  # Hours to seconds
+            r"(\d+)\s*perc": 60,   # Minutes to seconds
+            r"(\d+)\s*másodperc": 1  # Seconds
+        }
+        total_seconds = 0
+        for pattern, multiplier in time_patterns.items():
+            match = re.search(pattern, message)
+            if match:
+                total_seconds += int(match.group(1)) * multiplier
+        return total_seconds
+
+    def schedule_delayed_command(self, file_path: str, instruction: str, delay_seconds: int):
+        """Wait for the specified delay and then call apply_code_edit."""
+        logger.info(f"Scheduled command for {file_path} in {delay_seconds} seconds.")
+        time.sleep(delay_seconds)
+        asyncio.run(self.apply_code_edit(file_path, instruction))
+
     def start_monitoring(self):
         """Start the monitoring loop to detect and process commands"""
         logger.info("Starting AI command monitoring...")
-        
+
         # Initialize WebSocket retry counter
         ws_retry_count = 0
         max_ws_retries = 10
         ws_retry_delay = 1
-        
+
         while True:
             try:
                 # Detect any commands in the DOM
                 command = self.detect_commands()
                 now = time.time()
-                
+
                 if command:  # Command already validated in detect_commands
                     logger.info(f"New command detected: {command[:50]}...")
                     response = ""
-                    
+
                     # Update tracking variables immediately
                     self.last_command = command
                     self.last_timestamp = now
-                    
+
                     try:
-                        # Handle different command types
-                        if command.startswith("REPLAY:"):
+                        # Check for scheduled commands
+                        if self.is_scheduled_command(command):
+                            file_path, instruction = self._extract_file_and_instruction(command)
+                            delay_seconds = self.extract_schedule_delay(command)
+                            if file_path and instruction and delay_seconds > 0:
+                                logger.info(f"Scheduling command for {file_path} with delay of {delay_seconds} seconds.")
+                                threading.Thread(target=self.schedule_delayed_command, args=(file_path, instruction, delay_seconds)).start()
+                                response = f"Parancs ütemezve: {delay_seconds} másodperc múlva végrehajtva."
+                            else:
+                                response = "Érvénytelen ütemezett parancs: hiányzó fájl, utasítás vagy idő."
+
+                            # Add command to history regardless of success
+                            self._add_to_history(command)
+
+                            # Send response and continue to next iteration
+                            if response:
+                                self.send_response_via_selenium(response)
+                            self.log_command(command, response)
+                            continue  # Skip normal command processing
+
+                        # Handle regular commands through WebSocket
+                        elif command.startswith("REPLAY:"):
                             try:
                                 index = int(command.split(":")[1].strip())
                                 previous_command = self.get_previous_command(index)
-                                
+
                                 if previous_command:
                                     logger.info(f"Replaying command #{index}: {previous_command}")
                                     response = asyncio.run(self.send_command_to_websocket(previous_command))
@@ -743,44 +933,66 @@ class AICommandHandler:
                                     response = f"Nincs elérhető REPLAY:{index} parancs"
                             except ValueError:
                                 response = "Érvénytelen REPLAY formátum. Használat: REPLAY:X ahol X egy szám."
+
+                        elif self._is_code_edit_command(command):
+                            file_path, instruction = self._extract_file_and_instruction(command)
+                            if file_path and instruction:
+                                logger.info(f"Processing code edit command for {file_path}")
+                                try:
+                                    success = asyncio.run(self.apply_code_edit(file_path, instruction))
+                                    response = "Kód módosítás sikeresen végrehajtva." if success else "Hiba a kód módosítása során."
+                                except Exception as e:
+                                    logger.error(f"Error during code edit: {e}")
+                                    response = f"Hiba történt a kód módosítása során: {str(e)}"
+                            else:
+                                response = "Érvénytelen kód módosítási parancs: hiányzó fájl vagy utasítás."
+
+                            # Add command to history regardless of success
+                            self._add_to_history(command)
+
+                            # Send response and continue to next iteration
+                            if response:
+                                self.send_response_via_selenium(response)
+                            self.log_command(command, response)
+                            continue  # Skip normal command processing
+
                         else:
-                            # Send to WebSocket and get response
                             response = asyncio.run(self.send_command_to_websocket(command))
-                            # Add successful command to history if it's not empty
                             if response and len(response.strip()) > 0:
                                 self._add_to_history(command)
-                            
+
+                        # Handle response
                         if response and len(response.strip()) > 0:
                             # Reset WebSocket retry counter on successful communication
                             ws_retry_count = 0
                             ws_retry_delay = 1
-                            
+
                             # Send response to ChatGPT
                             self.send_response_via_selenium(response)
                         else:
                             logger.warning("Empty response received, skipping submission")
-                            
+
                     except Exception as e:
                         ws_retry_count += 1
                         logger.error(f"Command execution failed (attempt {ws_retry_count}): {e}")
-                        
+
                         if ws_retry_count >= max_ws_retries:
                             logger.error("Max WebSocket retries reached, restarting monitoring...")
                             ws_retry_count = 0
                             ws_retry_delay = 1
                             continue
-                            
+
                         # Exponential backoff for WebSocket retries
                         ws_retry_delay *= 2
                         time.sleep(ws_retry_delay)
                         continue
-                    
+
                     # Log the command and response
                     self.log_command(command, response)
-                
+
                 # Sleep to prevent high CPU usage
                 time.sleep(1)
-                
+
             except Exception as e:
                 logger.error(f"Error in monitoring loop: {e}")
                 time.sleep(5)  # Longer sleep on error

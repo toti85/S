@@ -230,3 +230,24 @@ class ReplayManager:
                     False
                 )
                 await asyncio.sleep(10)
+
+    async def handle_failed_command(self, command_id: int) -> None:
+        try:
+            command = self._get_command_by_id(command_id)
+            if not command:
+                logger.error(f"Command with id {command_id} not found in history")
+                return
+
+            if self.should_retry(command):
+                logger.info(f"Retrying failed command: {command[:50]}...")
+                result = await self.replay_command(command_id)
+                if result:
+                    logger.info(f"Command {command[:50]}... retried successfully")
+                    self.log_to_journal(f"RETRY: {command}", "Command retried successfully", True)
+                else:
+                    logger.error(f"Command {command[:50]}... failed after retry")
+                    self.log_to_journal(f"RETRY: {command}", "Command failed after retry", False)
+            else:
+                logger.warning(f"Command {command[:50]}... cannot be retried")
+        except Exception as e:
+            logger.error(f"Error handling failed command: {e}")
