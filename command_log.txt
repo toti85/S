@@ -1,148 +1,80 @@
-[2025-04-14 16:33:10] COMMAND: CMD: echo Hello from Project S - live replay test
-[2025-04-14 16:33:10] RESPONSE: Hello from Project S - live replay test
+[2025-04-17 13:30:36] COMMAND: CMD: echo MOST probalom
+[2025-04-17 13:30:36] RESPONSE: MOST probalom
 
 
-[2025-04-14 23:14:33] COMMAND: CMD: echo Hello from Project S - live replay test
-[2025-04-14 23:14:33] RESPONSE: Hello from Project S - live replay test
+[2025-04-17 13:30:58] COMMAND: CMD: Echo
+[2025-04-17 13:30:58] RESPONSE: ECHO is on.
 
 
-[2025-04-15 00:34:26] COMMAND: CMD: echo SystemBrain élesben működik
-[2025-04-15 00:34:26] RESPONSE: SystemBrain elesben mukodik
+[2025-04-17 13:31:09] COMMAND: CMD: echo
+[2025-04-17 13:31:09] RESPONSE: ECHO is on.
 
 
-[2025-04-15 00:39:02] COMMAND: CMD: cat copilot_journal.md
-[2025-04-15 00:39:02] RESPONSE: Error executing command: 'cat' is not recognized as an internal or external command,
+[2025-04-17 13:34:40] COMMAND: CMD: echo MOST probalom
+[2025-04-17 13:34:40] RESPONSE: MOST probalom
+
+[2025-04-17 13:35:09] COMMAND: CMD: echo ujr
+[2025-04-17 13:35:09] RESPONSE: ujr
+
+[2025-04-17 13:36:26] COMMAND: CMD: echo MOST probalom
+[2025-04-17 13:36:26] RESPONSE: MOST probalom
+
+[2025-04-17 23:30:02] COMMAND: CMD: echo MOST probalom
+[2025-04-17 23:30:02] RESPONSE: MOST probalom
+
+[2025-04-17 23:30:52] COMMAND: CMD: echo hello
+[2025-04-17 23:30:52] RESPONSE: hello
+
+[2025-04-17 23:32:18] COMMAND: CMD: echo hello
+[2025-04-17 23:32:18] RESPONSE: hello
+
+[2025-04-17 23:33:04] COMMAND: CMD: {"type": "rendszerteszt", "state": "OK"}
+[2025-04-17 23:33:04] RESPONSE: Error executing command: '{"type":' is not recognized as an internal or external command,
 operable program or batch file.
 
 
-[2025-04-15 00:39:21] COMMAND: CMD: powershell Get-Content copilot_journal.md
-[2025-04-15 00:39:21] RESPONSE: Command executed (no output)
+[2025-04-17 23:33:22] COMMAND: CMD: echo {"rendszer": "Projekt-S", "info": "JSON újrateszt"}
+[2025-04-17 23:33:22] RESPONSE: {"rendszer": "Projekt-S", "info": "JSON újrateszt"}
 
-[2025-04-15 00:39:45] COMMAND: CMD: echo 🧠 SYSTEMBRAIN LOG teszt: naplózási bejegyzés tesztelése >> copilot_journal.md
-[2025-04-15 00:39:45] RESPONSE: Command executed (no output)
+[2025-04-18 00:00:52] COMMAND: CMD: help - ez megmutatja a rendelkezésre álló parancsokat
+[2025-04-18 00:00:52] RESPONSE: Error executing command: Provides help information for Windows commands.
 
-[2025-04-15 01:19:21] COMMAND: CMD: echo SYSTEMBRAIN teszt 5: parancs sima, visszavárás aktív
-[2025-04-15 01:19:21] RESPONSE: SYSTEMBRAIN teszt 5: parancs sima, visszavaras aktiv
+HELP [command]
 
-
-[2025-04-15 01:22:17] COMMAND: CMD: python openai_agent.py --analyze-system-status
-[2025-04-15 01:22:17] RESPONSE: 🔍 Szerver Státusz Elemzés
-==============================
-
-✅ Megfelelően válaszoló szerverek:
-  - app1.example.com
-  - cache1.example.com
-
-❌ Problémás szerverek:
-  - db1.example.com
-  - app2.example.com
-
-💡 Javaslatok:
-  - CMD: ping db1.example.com
-  - CMD: systemctl restart sshd on app2.example.com
- 
-
-[2025-04-15 01:39:25] COMMAND: CMD: echo Stabilitás teszt: egyedi azonosítós kommunikáció aktív
-[2025-04-15 01:39:25] RESPONSE: Stabilitas teszt: egyedi azonositos kommunikacio aktiv
+    command - displays help information on that command.
 
 
-[2025-04-15 01:40:02] COMMAND: CMD: python replay_manager.py --retry-latest-failed
-[2025-04-15 01:40:02] RESPONSE: Command executed (no output)
+[2025-04-18 00:14:12] COMMAND: CMD: stats
+[2025-04-18 00:14:12] RESPONSE: Összes parancs: 2
+Rendszerparancsok: 1
+API hívások: 0
+Cache találatok: 0
+Hibák: 0
 
-[2025-04-15 01:42:49] COMMAND: CMD: python -c "from replay_manager import ReplayManager; ReplayManager().remove_failed_only()"
-[2025-04-15 01:42:49] RESPONSE: Error executing command: Traceback (most recent call last):
-  File "<string>", line 1, in <module>
-AttributeError: 'ReplayManager' object has no attribute 'remove_failed_only'
+[2025-04-18 00:15:18] COMMAND: CMD: time
+[2025-04-18 00:15:18] RESPONSE: 00:15:13
 
+[2025-04-18 00:15:51] COMMAND: CMD: echo cache teszt
+(küldd el kétszer ugyanazt a parancsot, és nézd meg, másodjára cache találat lesz-e)
+[2025-04-18 00:15:51] RESPONSE: cache teszt
+(küldd el kétszer ugyanazt a parancsot, és nézd meg, másodjára cache találat lesz-e)
 
-[2025-04-15 01:45:59] COMMAND: CMD: python -c "import asyncio; from replay_manager import ReplayManager; asyncio.run(asyncio.to_thread(lambda: print(dir(ReplayManager))))"
-[2025-04-15 01:45:59] RESPONSE: ['__class__', '__delattr__', '__dict__', '__dir__', '__doc__', '__eq__', '__format__', '__ge__', '__getattribute__', '__getstate__', '__gt__', '__hash__', '__init__', '__init_subclass__', '__le__', '__lt__', '__module__', '__ne__', '__new__', '__reduce__', '__reduce_ex__', '__repr__', '__setattr__',
+[2025-04-18 00:16:16] COMMAND: CMD: echo cache teszt
+[2025-04-18 00:16:16] RESPONSE: cache teszt
 
-[2025-04-15 01:51:08] COMMAND: CMD: python -c "import asyncio; from replay_manager import ReplayManager; asyncio.run(asyncio.to_thread(lambda: print(dir(ReplayManager))))"
-[2025-04-15 01:51:08] RESPONSE: ['__class__', '__delattr__', '__dict__', '__dir__', '__doc__', '__eq__', '__format__', '__ge__', '__getattribute__', '__getstate__', '__gt__', '__hash__', '__init__', '__init_subclass__', '__le__', '__lt__', '__module__', '__ne__', '__new__', '__reduce__', '__reduce_ex__', '__repr__', '__setattr__',
+[2025-04-18 00:37:25] COMMAND: CMD: stats
+[2025-04-18 00:37:25] RESPONSE: Összes parancs: 2
+Rendszerparancsok: 1
+API hívások: 0
+Cache találatok: 0
+Hibák: 0
 
-[2025-04-15 01:52:15] COMMAND: CMD: copy replay_manager_ai.py replay_manager.py /Y
-[2025-04-15 01:52:15] RESPONSE: Error executing command: A rendszer nem talalja a megadott fajlt.
+[2025-04-18 00:38:11] COMMAND: CMD: echo cache_teszt_v2
+[2025-04-18 00:38:11] RESPONSE: cache_teszt_v2
 
+[2025-04-18 00:41:09] COMMAND: CMD: echo kivele
+[2025-04-18 00:41:09] RESPONSE: kivele
 
-[2025-04-15 01:53:28] COMMAND: CMD: powershell Copy-Item -Path ".\replay_manager_ai.py" -Destination ".\replay_manager.py" -Force
-[2025-04-15 01:53:28] RESPONSE: Command executed (no output)
-
-[2025-04-15 01:54:40] COMMAND: CMD: python -c "import asyncio; from replay_manager import ReplayManager; asyncio.run(asyncio.to_thread(lambda: ReplayManager().remove_failed_only()))"
-[2025-04-15 01:54:40] RESPONSE: 2025-04-15 01:53:42,748 - Replay_Manager - INFO - Failed commands cleared
-
-
-[2025-04-15 13:38:36] COMMAND: CMD: python -c "from replay_manager import ReplayManager; instance = ReplayManager(); print([m for m in dir(instance) if not m.startswith('__')])"
-[2025-04-15 13:38:36] RESPONSE: ['_get_command_by_id', 'add_command', 'clear_history', 'command_history', 'export_history', 'failed_commands', 'get_command', 'get_retry_status', 'import_history', 'last_execution', 'log_to_journal', 'max_history_size', 'max_retries', 'remove_failed_only', 'replay_command', 'retry_cooldown', 'should
-
-[2025-04-15 13:39:54] COMMAND: CMD: python -c "from replay_manager import ReplayManager; ReplayManager().export_history('command_history_export.json')"
-[2025-04-15 13:39:54] RESPONSE: 2025-04-15 13:38:53,207 - Replay_Manager - INFO - Command history exported to command_history_export.json
-
-
-[2025-04-15 13:43:10] COMMAND: CMD: python -c "from replay_manager import ReplayManager; ReplayManager().import_history('command_history_export.json')"
-[2025-04-15 13:43:10] RESPONSE: 2025-04-15 13:42:23,685 - Replay_Manager - INFO - Command history imported from command_history_export.json
-
-
-[2025-04-15 14:26:05] COMMAND: CMD: Módosítsd a replay_manager.py-t úgy, hogy a max_history_size alapértéke 100 legyen, ne 50.
-[2025-04-15 14:26:05] RESPONSE: Error executing command: 'Modositsd' is not recognized as an internal or external command,
-operable program or batch file.
-
-
-[2025-04-15 14:27:37] COMMAND: CMD: Módosítsd a replay_manager.py-t úgy, hogy a max_retries alapértéke 10 legyen, ne 3.
-[2025-04-15 14:27:37] RESPONSE: Error executing command: 'Modositsd' is not recognized as an internal or external command,
-operable program or batch file.
-
-
-[2025-04-15 14:30:35] COMMAND: CMD: Módosítsd a replay_manager.py-t úgy, hogy a max_retries értéke 10 legyen.
-[2025-04-15 14:30:35] RESPONSE: Error executing command: 'Modositsd' is not recognized as an internal or external command,
-operable program or batch file.
-
-
-[2025-04-15 14:33:23] COMMAND: CMD: python -c "from openai_agent import OpenAIAgent; agent = OpenAIAgent(); agent.edit_code_file('replay_manager.py', 'Set max_retries default value to 10 instead of 3.')"
-[2025-04-15 14:33:23] RESPONSE: WebSocket connection failed after 5 attempts. Last error: 
-
-[2025-04-15 14:41:11] COMMAND: CMD: Módosítsd a replay_manager.py-t úgy, hogy a max_retries alapértéke 10 legyen.
-[2025-04-15 14:41:11] RESPONSE: Error executing command: 'Modositsd' is not recognized as an internal or external command,
-operable program or batch file.
-
-
-[2025-04-15 14:43:01] COMMAND: CMD: Módosítsd a replay_manager.py-t úgy, hogy a max_retries értéke 10 legyen.
-[2025-04-15 14:43:01] RESPONSE: Error executing command: 'Modositsd' is not recognized as an internal or external command,
-operable program or batch file.
-
-
-[2025-04-15 15:00:05] COMMAND: CMD: Módosítsd a replay_manager.py-t úgy, hogy a max_retries alapértéke 10 legyen.
-[2025-04-15 15:00:05] RESPONSE: Error executing command: 'Modositsd' is not recognized as an internal or external command,
-operable program or batch file.
-
-
-[2025-04-15 15:01:21] COMMAND: CMD: Módosítsd a replay_manager.py-t úgy, hogy...
-[2025-04-15 15:01:21] RESPONSE: Error executing command: 'Modositsd' is not recognized as an internal or external command,
-operable program or batch file.
-
-
-[2025-04-15 23:24:52] COMMAND: CMD: Módosítsd a replay_manager.py-t úgy, hogy a max_retries alapértéke 10 legyen.
-[2025-04-15 23:24:52] RESPONSE: Kód módosítás sikeresen végrehajtva.
-
-[2025-04-15 23:36:04] COMMAND: CMD: Módosítsd a replay_manager.py-t úgy, hogy a max_retries alapértéke 10 legyen.
-[2025-04-15 23:36:04] RESPONSE: Kód módosítás sikeresen végrehajtva.
-
-[2025-04-15 23:38:30] COMMAND: CMD: Módosítsd a replay_manager.py-t úgy, hogy tartalmazzon egy új metódust handle_failed_command(command_id), amely automatikusan újrapróbálja a megadott parancsot a max_retries és retry_cooldown beállításokat figyelembe véve. Ha a parancs végül is sikeres, naplózza sikeres újrapróbálásként, ha nem, naplózza véglegesen sikertelenként.
-[2025-04-15 23:38:30] RESPONSE: Kód módosítás sikeresen végrehajtva.
-
-[2025-04-15 23:44:25] COMMAND: CMD: Futtasd újra 1 órával később
-[2025-04-15 23:44:25] RESPONSE: Error executing command: 'Futtasd' is not recognized as an internal or external command,
-operable program or batch file.
-
-
-[2025-04-15 23:47:45] COMMAND: CMD: Módosítsd az ai_command_handler.py fájlt úgy, hogy felismerje az időzített parancsokat, például: „Futtasd újra 1 órával később”, és ezekhez hozz létre egy új metódust schedule_delayed_command(file_path, instruction, delay_seconds), amely késleltetve hajtja végre a módosítást. Az időzítés felismerése történjen természetes nyelvi kifejezések alapján, például „1 perc”, „2 óra”, „30 másodperc”.
-[2025-04-15 23:47:45] RESPONSE: Hiba a kód módosítása során.
-
-[2025-04-15 23:52:25] COMMAND: CMD: Futtasd újra
-[2025-04-15 23:52:25] RESPONSE: Error executing command: 'Futtasd' is not recognized as an internal or external command,
-operable program or batch file.
-
-
-[2025-04-15 23:56:22] COMMAND: CMD: [EDIT:RETRY-LOGIC] Módosítsd a retry_log.py-t...
-[2025-04-15 23:56:22] RESPONSE: Hiba a kód módosítása során.
+[2025-04-18 00:42:58] COMMAND: CMD: echo {"parancs": "teszt", "tipus": "json"}
+[2025-04-18 00:42:58] RESPONSE: {"parancs": "teszt", "tipus": "json"}
 

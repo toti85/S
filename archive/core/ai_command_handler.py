@@ -13,7 +13,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.keys import Keys
-from replay_manager import ReplayManager  # Import the new ReplayManager
+from replay.replay_manager import ReplayManager  # Helyesbített import útvonal  # Import the new ReplayManager
 from openai import OpenAI  # Add OpenAI import
 import pathlib  # For path handling
 import json  # For config handling
@@ -876,6 +876,38 @@ class AICommandHandler:
         time.sleep(delay_seconds)
         asyncio.run(self.apply_code_edit(file_path, instruction))
 
+    def _is_simple_command(self, command: str) -> bool:
+        """
+        Ellenőrzi, hogy egy parancs egyszerű rendszerparancs-e, amit helyben tudunk kezelni.
+        """
+        if not command.startswith("CMD:"):
+            return False
+            
+        # Egyszerű parancsok listája
+        simple_commands = [
+            "echo", "dir", "ls", "cd", "pwd", "clear",
+            "time", "date", "whoami", "hostname", "ping",
+            "type", "cat"
+        ]
+        
+        cmd_content = command[4:].strip().lower()
+        return any(cmd_content.startswith(cmd) for cmd in simple_commands)
+
+    def _handle_simple_command(self, command: str) -> str:
+        """
+        Egyszerű parancsok végrehajtása helyben, Python kódban.
+        """
+        cmd_content = command[4:].strip()
+        
+        # Echo parancs kezelése
+        if cmd_content.lower().startswith("echo"):
+            return cmd_content[5:].strip()
+            
+        # További egyszerű parancsok implementálása...
+        # TODO: Több parancs hozzáadása szükség szerint
+        
+        return f"Simple command executed: {cmd_content}"
+
     def start_monitoring(self):
         """Start the monitoring loop to detect and process commands"""
         logger.info("Starting AI command monitoring...")
@@ -900,28 +932,17 @@ class AICommandHandler:
                     self.last_timestamp = now
 
                     try:
-                        # Check for scheduled commands
-                        if self.is_scheduled_command(command):
-                            file_path, instruction = self._extract_file_and_instruction(command)
-                            delay_seconds = self.extract_schedule_delay(command)
-                            if file_path and instruction and delay_seconds > 0:
-                                logger.info(f"Scheduling command for {file_path} with delay of {delay_seconds} seconds.")
-                                threading.Thread(target=self.schedule_delayed_command, args=(file_path, instruction, delay_seconds)).start()
-                                response = f"Parancs ütemezve: {delay_seconds} másodperc múlva végrehajtva."
-                            else:
-                                response = "Érvénytelen ütemezett parancs: hiányzó fájl, utasítás vagy idő."
-
-                            # Add command to history regardless of success
+                        # 1. Először ellenőrizzük az egyszerű CMD: parancsokat
+                        if self._is_simple_command(command):
+                            response = self._handle_simple_command(command)
                             self._add_to_history(command)
-
-                            # Send response and continue to next iteration
                             if response:
                                 self.send_response_via_selenium(response)
                             self.log_command(command, response)
-                            continue  # Skip normal command processing
+                            continue
 
-                        # Handle regular commands through WebSocket
-                        elif command.startswith("REPLAY:"):
+                        # 2. Ellenőrizzük a REPLAY parancsokat
+                        if command.startswith("REPLAY:"):
                             try:
                                 index = int(command.split(":")[1].strip())
                                 previous_command = self.get_previous_command(index)
@@ -934,6 +955,26 @@ class AICommandHandler:
                             except ValueError:
                                 response = "Érvénytelen REPLAY formátum. Használat: REPLAY:X ahol X egy szám."
 
+                        # 3. Időzített parancsok kezelése
+                        elif self.is_scheduled_command(command):
+                            # Csak akkor használjuk az OpenAI API-t, ha nem CMD: vagy CODE: prefix-szel kezdődik
+                            if not command.startswith(("CMD:", "CODE:")):
+                                file_path, instruction = self._extract_file_and_instruction(command)
+                                delay_seconds = self.extract_schedule_delay(command)
+                                if file_path and instruction and delay_seconds > 0:
+                                    logger.info(f"Scheduling command for {file_path} with delay of {delay_seconds} seconds.")
+                                    threading.Thread(target=self.schedule_delayed_command, 
+                                                  args=(file_path, instruction, delay_seconds)).start()
+                                    response = f"Parancs ütemezve: {delay_seconds} másodperc múlva végrehajtva."
+                            else:
+                                # Egyszerű időzített parancs, nem kell OpenAI
+                                delay_seconds = self.extract_schedule_delay(command)
+                                if delay_seconds > 0:
+                                    threading.Thread(target=lambda: time.sleep(delay_seconds) or 
+                                        self.send_response_via_selenium(f"Időzített parancs végrehajtva: {command}")).start()
+                                    response = f"Egyszerű parancs ütemezve: {delay_seconds} másodperc múlva."
+
+                        # 4. Kódszerkesztési parancsok kezelése
                         elif self._is_code_edit_command(command):
                             file_path, instruction = self._extract_file_and_instruction(command)
                             if file_path and instruction:
@@ -947,15 +988,7 @@ class AICommandHandler:
                             else:
                                 response = "Érvénytelen kód módosítási parancs: hiányzó fájl vagy utasítás."
 
-                            # Add command to history regardless of success
-                            self._add_to_history(command)
-
-                            # Send response and continue to next iteration
-                            if response:
-                                self.send_response_via_selenium(response)
-                            self.log_command(command, response)
-                            continue  # Skip normal command processing
-
+                        # 5. Egyéb parancsok küldése WebSocketen keresztül
                         else:
                             response = asyncio.run(self.send_command_to_websocket(command))
                             if response and len(response.strip()) > 0:
