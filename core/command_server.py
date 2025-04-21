@@ -8,6 +8,7 @@ import logging
 from datetime import datetime
 from io import StringIO
 import sys
+from core.command_library import COMMAND_LIBRARY  # Importáljuk a parancskönyvtárat
 
 # Configure logging with UTF-8 encoding
 logging.basicConfig(
@@ -59,6 +60,94 @@ class CommandServer:
         """Execute a shell command and return the output"""
         logger.info(f"Executing CMD: {cmd}")
         try:
+            # Ellenőrizzük, hogy JSON formátumú parancs-e
+            if cmd.strip().startswith("{") and cmd.strip().endswith("}"):
+                try:
+                    cmd_json = json.loads(cmd)
+                    if "parancs" in cmd_json:
+                        command_name = cmd_json["parancs"].lower().strip()
+                        command_args = cmd_json.get("paraméterek", "").strip()
+                        
+                        logger.info(f"JSON parancs feldolgozása: {command_name} paraméterekkel: {command_args}")
+                        
+                        # Ellenőrizzük, hogy a parancs megtalálható-e a parancskönyvtárban
+                        if command_name in COMMAND_LIBRARY:
+                            try:
+                                result = COMMAND_LIBRARY[command_name](command_args)
+                                self.add_to_history(f"CMD: {command_name} {command_args}")
+                                return result
+                            except Exception as e:
+                                return f"Hiba a parancskönyvtári parancs végrehajtásakor: {str(e)}"
+                        else:
+                            return f"Ismeretlen parancs a parancskönyvtárban: {command_name}"
+                except json.JSONDecodeError:
+                    logger.error("Hibás JSON formátum a parancsban")
+                    return "Hibás JSON formátum a parancsban"
+            
+            # Speciális "diagnose network" parancs kezelése
+            if cmd.strip().lower() == "diagnose network":
+                logger.info("Hálózati diagnosztika indítása")
+                try:
+                    # Importáljuk és futtassuk a network_diagnostics modult
+                    from core.network_diagnostics import diagnose_network
+                    
+                    # Definiáljuk a célpontokat
+                    targets = [
+                        "192.168.0.1",      # Router
+                        "192.168.0.50",     # NAS
+                        "192.168.0.10",     # PC
+                        "8.8.8.8",          # Google DNS
+                        "1.1.1.1"           # Cloudflare DNS
+                    ]
+                    
+                    # Futtassuk a diagnosztikát, hogy visszakapjuk az eredményt
+                    results = diagnose_network(targets)
+                    
+                    # Biztosítsuk, hogy a logs könyvtár létezik
+                    import os
+                    if not os.path.exists("logs"):
+                        os.makedirs("logs")
+                        
+                    # Mentsük el a diagnosztika eredményét
+                    with open("logs/network_diagnostics.json", "w", encoding="utf-8") as f:
+                        json.dump(results, f, indent=4, ensure_ascii=False)
+                    
+                    # Formázzuk a JSON-t egy egysoros, idézhető formátumra
+                    # Használjuk az egyszerű JSON formátumot a könnyebb kezeléshez
+                    simple_json = json.dumps({
+                        "status": "teszt",
+                        "tipus": "json",
+                        "komponens": "response_router",
+                        "timestamp": results["timestamp"],
+                        "targets_count": len(results["results"]),
+                        "results": results["results"]
+                    }, ensure_ascii=False)
+                    
+                    logger.info(f"Diagnosztika eredmény JSON létrehozva: {simple_json[:100]}...")
+                    return simple_json
+                    
+                except ImportError:
+                    return "Hiba: A network_diagnostics modul nem található."
+                except Exception as e:
+                    logger.error(f"Hiba a hálózati diagnosztika futtatásakor: {e}")
+                    return f"Hiba a hálózati diagnosztika futtatásakor: {str(e)}"
+                    
+            # Ellenőrizzük, hogy a parancs elérhető-e a parancskönyvtárban
+            cmd_parts = cmd.strip().split(None, 1)
+            base_cmd = cmd_parts[0].lower() if cmd_parts else ""
+            args = cmd_parts[1] if len(cmd_parts) > 1 else ""
+            
+            if base_cmd in COMMAND_LIBRARY:
+                try:
+                    logger.info(f"Parancskönyvtári parancs végrehajtása: {base_cmd}")
+                    result = COMMAND_LIBRARY[base_cmd](args)
+                    self.add_to_history(f"CMD: {cmd}")
+                    return result
+                except Exception as e:
+                    logger.error(f"Hiba a parancskönyvtári parancs végrehajtásakor: {e}")
+                    return f"Hiba a parancs végrehajtásakor: {str(e)}"
+            
+            # Ha nincs a parancskönyvtárban, akkor végrehajtjuk közvetlenül
             # Set UTF-8 encoding for subprocess
             env = os.environ.copy()
             env["PYTHONIOENCODING"] = "utf-8"

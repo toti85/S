@@ -21,6 +21,7 @@ import re  # For regex handling
 import hashlib  # For caching
 import pickle  # For cache serialization
 from core.response_router import route_response
+from core.command_library import COMMAND_LIBRARY  # Importáljuk a parancskönyvtárat
 
 # Configure logging with UTF-8 encoding
 logging.basicConfig(
@@ -337,6 +338,45 @@ class AICommandHandler:
         self.command_stats["total_commands"] += 1
         self.command_stats["system_commands"] += 1
         
+        # Speciális "diagnose network" parancs kezelése
+        if cmd.strip().lower() == "diagnose network":
+            try:
+                print("DEBUG - Hálózati diagnosztika indítása")
+                logger.info("Hálózati diagnosztika indítása a network_diagnostics modul segítségével")
+                
+                # Importáljuk és futtassuk a network_diagnostics modult
+                try:
+                    from core.network_diagnostics import main
+                    result = main()
+                    return result or "Hálózati diagnosztika sikeresen végrehajtva"
+                except ImportError:
+                    return "Hiba: A network_diagnostics modul nem található. Kérjük, ellenőrizze, hogy létezik-e a core/network_diagnostics.py fájl."
+                except Exception as e:
+                    return f"Hiba a hálózati diagnosztika futtatásakor: {str(e)}"
+            except Exception as e:
+                self.command_stats["errors"] += 1
+                return f"Hálózati diagnosztika hiba: {str(e)}"
+        
+        # Ellenőrizzük, hogy a parancs egy JSON formátumú objektum-e
+        if self._is_json(cmd):
+            try:
+                cmd_obj = json.loads(cmd)
+                # Ha a parancs érték egy string, és szerepel a COMMAND_LIBRARY-ben
+                if isinstance(cmd_obj, dict) and "parancs" in cmd_obj:
+                    cmd_name = cmd_obj["parancs"]
+                    # Ellenőrizzük, hogy a parancs neve szerepel-e a COMMAND_LIBRARY-ben
+                    if cmd_name in COMMAND_LIBRARY:
+                        # Helyettesítsük be a konkrét parancs szövegével és végrehajtsuk
+                        logger.info(f"Parancskönyvtár használata: {cmd_name}")
+                        # Ha van paramétere a parancsnak
+                        params = cmd_obj.get("paraméterek", "")
+                        # A COMMAND_LIBRARY-ban tárolt függvény meghívása
+                        return COMMAND_LIBRARY[cmd_name](params)
+            except Exception as e:
+                logger.error(f"Hiba a JSON parancs feldolgozásakor: {str(e)}")
+                self.command_stats["errors"] += 1
+                return f"Hiba a parancs feldolgozása során: {str(e)}"
+        
         # Először ellenőrizzük, hogy van-e belső parancskezelőnk a parancshoz
         parts = cmd.strip().split(None, 1)
         base_cmd = parts[0].lower() if parts else ""
@@ -347,6 +387,14 @@ class AICommandHandler:
             try:
                 return self.system_commands[base_cmd](args)
             except Exception as e:
+                return f"Hiba a parancs végrehajtása közben: {str(e)}"
+        
+        # Ellenőrizzük, hogy a parancs szerepel-e a COMMAND_LIBRARY-ben
+        if base_cmd in COMMAND_LIBRARY:
+            try:
+                return COMMAND_LIBRARY[base_cmd](args)
+            except Exception as e:
+                self.command_stats["errors"] += 1
                 return f"Hiba a parancs végrehajtása közben: {str(e)}"
         
         # Ha nincs belső kezelő, külső parancsként futtatjuk
@@ -802,6 +850,15 @@ class AICommandHandler:
         if len(command.strip()) <= len(prefix):
             return False
             
+        # Speciális "FORCE" parancsok mindig lefutnak, még ismétlés esetén is
+        # Formátum: CMD: FORCE:parancs - ez felülírja a duplikáció ellenőrzést
+        if command.startswith("CMD:") and "FORCE:" in command[:15]:
+            # Kivesszük a "FORCE:" részt a parancsból a további feldolgozáshoz
+            command_content = command.replace("FORCE:", "", 1)
+            # Update timestamp still
+            self.last_timestamp = now
+            return True
+            
         # Special handling for CODE: commands
         if command.startswith("CODE:"):
             # Must contain actual code content
@@ -863,7 +920,7 @@ class AICommandHandler:
         self.last_timestamp = now
         
         return True
-    
+
     def _is_error_response(self, response: str) -> bool:
         """
         Ellenőrzi, hogy a válasz hibaüzenet-e.
@@ -1352,7 +1409,7 @@ class AICommandHandler:
         """
         Egyszerű parancsok végrehajtása helyben, Python kódban.
         """
-        cmd_content = command[4:].strip()
+        cmd_content = command[4:].trip()
         
         # Echo parancs kezelése
         if cmd_content.lower().startswith("echo"):
@@ -1366,12 +1423,23 @@ class AICommandHandler:
     def handle_response(self, response: str, original_command: str = None):
         """Handles the response based on its routed type."""
         response_type = route_response(response)
-        print(f"DEBUG - Command: {original_command}, Response: {response[:50]}..., Routed as: {response_type}")
+        print(f"DEBUG - Command: {original_command[:50] if original_command else 'None'}, Response: {response[:50]}..., Routed as: {response_type}")
+        
+        # JSON válaszoknál speciális kezelés, hogy elkerüljük az ismétlést
+        if response_type == "JSON" and original_command and "FORCE:echo" in original_command:
+            # Csak egyszer küldjük vissza a választ az echo JSON parancsokra
+            print("DEBUG - JSON parancsra válasz küldése")
+            self.send_response_via_selenium(response)
+            return
         
         # Rendszerparancs kimenete mindig kerüljön visszaküldésre, 
         # függetlenül attól, hogyan kategorizálja a route_response
         if original_command and original_command.startswith("CMD:"):
             cmd_content = original_command[4:].strip()
+            # FORCE: prefix eltávolítása a vizsgálathoz
+            if cmd_content.startswith("FORCE:"):
+                cmd_content = cmd_content[6:].strip()
+                
             if self._is_system_command(cmd_content) and response != cmd_content:
                 print("DEBUG - Rendszerparancs kimenete, visszaküldés")
                 self.send_response_via_selenium(response)
@@ -1380,9 +1448,18 @@ class AICommandHandler:
         # Egyéb válaszok kezelése típus szerint
         if response_type == "ECHO":
             # Csak akkor ne küldjük vissza, ha pontosan megegyezik az eredeti parancs tartalmával
-            if original_command and response.strip() == original_command[original_command.find(":")+1:].strip():
-                print("DEBUG - Pontos egyezés az eredeti paranccsal, nem küldöm vissza")
-                return
+            if original_command:
+                # Tisztítsuk meg a parancsot a FORCE: és CMD: prefixektől
+                clean_cmd = original_command
+                if clean_cmd.startswith("CMD:"):
+                    clean_cmd = clean_cmd[4:].strip()
+                if clean_cmd.startswith("FORCE:"):
+                    clean_cmd = clean_cmd[6:].strip()
+                    
+                if response.strip() == clean_cmd.strip():
+                    print("DEBUG - Pontos egyezés az eredeti paranccsal, nem küldöm vissza")
+                    return
+                    
             print("DEBUG - ECHO típusú, de nem egyezik az eredetivel, visszaküldés")
             self.send_response_via_selenium(response)
         elif response_type == "ERROR":
@@ -1441,9 +1518,13 @@ class AICommandHandler:
                         elif self._is_json(cmd_content):
                             response = await self._process_json_command(cmd_content)
                         
-                        # General echo command
+                        # MÓDOSÍTVA: Az összes CMD: parancsot megpróbáljuk futtatni subprocess-szel
                         else:
-                            response = cmd_content
+                            print(f"DEBUG - Nyers rendszerparancs futtatása: {cmd_content}")
+                            response = self._run_system_command(cmd_content)
+                            # Ha nincs kimenet, akkor adjunk visszajelzést
+                            if not response or response == "(Nincs kimenet)":
+                                response = "Parancs végrehajtva, de nincs kimenet."
                             
                     elif category == "JSON":
                         response = await self._process_json_command(command)
@@ -1495,7 +1576,7 @@ class AICommandHandler:
                     self.command_stats["errors"] += 1
                     
                     try:
-                        os.makedirs("logs", exist_ok=True)  # Ensure logs directory exists
+                        os.makedirs("logs", exist_oké=True)  # Ensure logs directory exists
                         with open("logs/critical.log", "a", encoding="utf-8") as f:
                             f.write(log_msg + "\n")
                     except Exception as log_e:
@@ -1542,7 +1623,7 @@ class AICommandHandler:
         try:
             # Clean the text - remove CMD: prefix if present
             if json_text.startswith("CMD:"):
-                json_text = json_text[4:].strip()
+                json_text = json_text[4:].trip()
                 
             # Parse the JSON
             data = json.loads(json_text)
