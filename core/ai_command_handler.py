@@ -50,29 +50,29 @@ class AICommandHandler:
         self.ws_port = ws_port
         self.ws_uri = f"ws://127.0.0.1:{ws_port}/ws"
         self.log_file = "command_log.txt"
-        self.conversation_log = "conversation_log.txt"  # Új beszélgetés log fájl
+        self.conversation_log = "conversation_log.txt"
+        
+        # Performance optimizer variables
+        self.last_dom_scan = 0
+        self.dom_scan_interval = 0.3  # seconds
         
         # Command tracking variables
         self.last_command = ""
         self.last_timestamp = 0
         self.command_cooldown = 3  # seconds
-        self.recent_commands = set()  # Store recent commands
-        self.max_recent_commands = 5  # Keep track of last 5 commands
+        self.recent_commands = set()
+        self.max_recent_commands = 5
         
-        # New: Failed commands tracking
-        self.failed_commands = {}  # Dict to track failed command attempts
-        self.max_retries = 3  # Maximum number of retries per command
+        # Failed commands tracking
+        self.failed_commands = {}
+        self.max_retries = 3
         
-        # Command history for REPLAY functionality
+        # Command history
         self.command_history = []
         self.max_history_size = 10
         
         # Initialize ReplayManager
         self.replay_manager = ReplayManager()
-        
-        # Add OpenAI client initialization
-        self.openai_client = None
-        self._initialize_openai()
         
         # Initialize browser connection
         self._initialize_browser()
@@ -81,26 +81,7 @@ class AICommandHandler:
         self.cache_file = "ai_command_cache.pkl"
         self.cache = self._load_cache()
         
-        # System command registry - parancsok helyben futtatásához
-        self.system_commands = {
-            "echo": self._cmd_echo,
-            "time": self._cmd_time,
-            "date": self._cmd_date,
-            "whoami": self._cmd_whoami,
-            "hostname": self._cmd_hostname,
-            "dir": self._cmd_dir,
-            "ls": self._cmd_dir,  # alias for dir
-            "help": self._cmd_help,
-            "info": self._cmd_info,
-            "stats": self._cmd_stats,
-            "history": self._cmd_history,
-            "cat": self._cmd_cat,
-            "type": self._cmd_cat,  # alias for cat
-        }
-        
-        # Performance optimizer
-        self.last_dom_scan = 0
-        self.dom_scan_interval = 0.3  # seconds
+        # Command stats
         self.command_stats = {
             "total_commands": 0,
             "system_commands": 0,
@@ -108,6 +89,153 @@ class AICommandHandler:
             "cached_responses": 0,
             "errors": 0
         }
+        
+        # System commands for local execution
+        self.system_commands = {
+            "echo": self._cmd_echo,
+            "time": self._cmd_time,
+            "date": self._cmd_date,
+            "whoami": self._cmd_whoami,
+            "hostname": self._cmd_hostname,
+            "dir": self._cmd_dir,
+            "ls": self._cmd_dir,
+            "help": self._cmd_help,
+            "info": self._cmd_info,
+            "stats": self._cmd_stats,
+            "history": self._cmd_history,
+            "cat": self._cmd_cat,
+            "type": self._cmd_cat
+        }
+
+    def run_cmd(self, command: str) -> int:
+        """Közvetlenül futtat egy parancsot az os.system() segítségével"""
+        logger.info(f"Executing command via os.system: {command}")
+        try:
+            return_code = os.system(command)
+            if return_code == 0:
+                logger.info("Command executed successfully")
+            else:
+                logger.error(f"Command failed with return code: {return_code}")
+            return return_code
+        except Exception as e:
+            logger.error(f"Error executing command: {str(e)}")
+            return -1
+
+    def _run_system_command(self, cmd: str) -> str:
+        """Rendszerparancs futtatása subprocess-szel vagy a belső parancskezelővel."""
+        print(f"DEBUG - Rendszerparancs végrehajtása: {cmd}")
+        
+        self.command_stats["total_commands"] += 1
+        self.command_stats["system_commands"] += 1
+        
+        # Először próbáljuk meg a belső parancskezelőkkel
+        parts = cmd.strip().split(None, 1)
+        base_cmd = parts[0].lower() if parts else ""
+        args = parts[1] if len(parts) > 1 else ""
+        
+        if base_cmd and base_cmd in self.system_commands:
+            try:
+                return self.system_commands[base_cmd](args)
+            except Exception as e:
+                return f"Hiba a parancs végrehajtása közben: {str(e)}"
+        
+        # Ha nincs belső kezelő, külső parancsként futtatjuk
+        try:
+            # Biztonsági ellenőrzések
+            if len(cmd) > 200:
+                return "Hiba: Túl hosszú rendszerparancs."
+            
+            harmful_patterns = ["rm ", "del ", ":(){:|:&};:", "format ", "shutdown"]
+            if any(pattern in cmd.lower() for pattern in harmful_patterns):
+                return "Hiba: Potenciálisan veszélyes parancs blokkolva."
+
+            # Check if command contains file redirection
+            has_redirection = any(op in cmd for op in ['>', '>>', '<'])
+            
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=15, encoding='utf-8', errors='ignore')
+            output = result.stdout.strip() or result.stderr.strip()
+            
+            # If command has redirection and was successful but no output, provide helpful message
+            if has_redirection and result.returncode == 0 and not output:
+                # Extract the filename from redirection command (basic version)
+                try:
+                    filename = cmd.split('>')[-1].strip().strip('"')
+                    if os.path.exists(filename):
+                        return f"A fájlművelet sikeresen végrehajtva: {filename}"
+                except:
+                    pass
+                return "A fájlművelet sikeresen végrehajtva."
+            
+            # Limit output length
+            if len(output) > 1000:
+                output = output[:1000] + "... [kimenet levágva]"
+            
+            return output if output else "(Nincs kimenet)"
+        except subprocess.TimeoutExpired:
+            return "Hiba: Rendszerparancs időtúllépés."
+        except Exception as e:
+            self.command_stats["errors"] += 1
+            return f"Rendszerparancs hiba: {str(e)}"
+
+    async def start_monitoring(self):
+        """AI parancsfigyelő főciklus"""
+        logger.info("Parancskezelő indítása...")
+        print("AI Command Handler elindítva")
+        print("Parancsok figyelése megkezdve...")
+        
+        while True:
+            try:
+                now = time.time()
+                if now - self.last_dom_scan < self.dom_scan_interval:
+                    await asyncio.sleep(0.1)
+                    continue
+                
+                self.last_dom_scan = now
+                command = self.detect_commands()
+                if not command:
+                    continue
+
+                logger.info(f"Command detected: {command[:60]}...")
+                category = route_response(command)
+                response = None
+                
+                self.command_stats["total_commands"] += 1
+
+                # Parancs feldolgozása kategória szerint
+                if category == "ECHO" and command.startswith("CMD:"):
+                    cmd_content = command[command.find(":")+1:].strip()
+                    response = self._run_system_command(cmd_content)
+                    
+                elif category == "CODE":
+                    # Kód végrehajtása vagy szerkesztése
+                    response = command[command.find(":")+1:].strip()
+                    
+                elif category == "REPLAY":
+                    try:
+                        index = int(command.split(":")[1].strip())
+                        response = await self.handle_replay(index)
+                    except (IndexError, ValueError):
+                        response = "Érvénytelen REPLAY formátum."
+                
+                # Válasz kezelése
+                if response:
+                    self.handle_response(response, original_command=command)
+                    self._add_to_history(command)
+                    self.log_command(command, response)
+
+            except Exception as e:
+                error_msg = f"[CRITICAL] {datetime.now()} Hiba a parancs feldolgozásakor: {str(e)}"
+                print(error_msg)
+                self.command_stats["errors"] += 1
+                
+                try:
+                    os.makedirs("logs", exist_ok=True)
+                    with open("logs/critical.log", "a", encoding="utf-8") as f:
+                        f.write(error_msg + "\n")
+                except Exception as log_e:
+                    print(f"[CRITICAL] Nem sikerült a log fájlba írni: {log_e}")
+                
+                await asyncio.sleep(1)
 
     def _is_system_command(self, cmd: str) -> bool:
         """Eldönti, hogy a parancs egy ismert rendszerparancs-e."""
@@ -408,8 +536,22 @@ class AICommandHandler:
             if any(pattern in cmd.lower() for pattern in harmful_patterns):
                  return "Hiba: Potenciálisan veszélyes parancs blokkolva."
 
+            # Check if command contains file redirection
+            has_redirection = any(op in cmd for op in ['>', '>>', '<'])
+            
             result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=15, encoding='utf-8', errors='ignore')
             output = result.stdout.strip() or result.stderr.strip()
+            
+            # If command has redirection and was successful but no output, provide helpful message
+            if has_redirection and result.returncode == 0 and not output:
+                # Extract the filename from redirection command (basic version)
+                try:
+                    filename = cmd.split('>')[-1].strip().strip('"')
+                    if os.path.exists(filename):
+                        return f"A fájlművelet sikeresen végrehajtva: {filename}"
+                except:
+                    pass
+                return "A fájlművelet sikeresen végrehajtva."
             
             # Limit output length
             max_output_len = 1000
@@ -625,84 +767,6 @@ class AICommandHandler:
                 logger.warning("OPENAI_API_KEY environment variable not set")
         except Exception as e:
             logger.error(f"Failed to initialize OpenAI client: {e}")
-
-    async def apply_code_edit(self, file_path: str, instruction: str) -> bool:
-        """
-        Apply code edits to a Python file using GPT-4.
-        
-        Args:
-            file_path: Path to the Python file to edit
-            instruction: Natural language instruction for the edit
-            
-        Returns:
-            bool: True if successful, False otherwise
-        """
-        if not self.openai_client:
-            logger.error("OpenAI client not initialized - check API key configuration")
-            return False
-
-        try:
-            # Read the source file
-            with open(file_path, 'r', encoding='utf-8') as f:
-                source_code = f.read()
-
-            # Create prompt for GPT-4
-            prompt = f"""Please modify the following Python code according to this instruction:
-            {instruction}
-            
-            Here is the code:
-            ```python
-            {source_code}
-            ```
-            
-            Please provide ONLY the modified code without any explanations."""
-
-            # Get GPT-4 response
-            response = self.openai_client.chat.completions.create(
-                model="gpt-4",
-                messages=[
-                    {"role": "system", "content": "You are a Python code editing assistant. Provide only the modified code without explanations."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.1
-            )
-
-            # Extract the modified code
-            modified_code = response.choices[0].message.content.strip()
-            if modified_code.startswith("```python"):
-                modified_code = modified_code[10:-3].strip()
-            elif modified_code.startswith("```"):
-                modified_code = modified_code[3:-3].strip()
-
-            # Generate output filename
-            path = pathlib.Path(file_path)
-            output_path = path.parent / f"{path.stem}_ai{path.suffix}"
-
-            # Save modified code
-            with open(output_path, 'w', encoding='utf-8') as f:
-                f.write(modified_code)
-
-            # Log the change
-            with open('openai_agent.log', 'a', encoding='utf-8') as f:
-                log_entry = f"[{datetime.now().isoformat()}] Modified {file_path} -> {output_path}\n"
-                f.write(log_entry)
-
-            # Add journal entry
-            journal_entry = f"""
-## Code Edit {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-- Source: `{file_path}`
-- Output: `{output_path}`
-- Instruction: {instruction}
-"""
-            with open('copilot_journal.md', 'a', encoding='utf-8') as f:
-                f.write(journal_entry)
-
-            logger.info(f"Successfully applied code edit: {file_path} -> {output_path}")
-            return True
-
-        except Exception as e:
-            logger.error(f"Error applying code edit: {e}")
-            return False
 
     def detect_commands(self):
         """
@@ -1062,175 +1126,177 @@ class AICommandHandler:
         Send response back to ChatGPT using Selenium JavaScript injection.
         Uses multiple fallback strategies to ensure reliable response submission.
         """
-        try:
-            logger.info("Sending response via Selenium...")
-            
-            # Sanitize response to handle emojis and special characters
-            message = self._sanitize_text(message)
-            
-            # Add system identifier prefix to the message
-            message = "[SYSID:AI123] " + message
-            
-            # Find textarea using the most specific selectors first
-            textarea_selectors = [
-                "#prompt-textarea",  # New ChatGPT primary selector
-                "textarea[data-id='prompt-textarea']",
-                "textarea.m-0",  # New ChatGPT specific class
-                "textarea[placeholder*='Send a message']",  # Placeholder text
-                "textarea[tabindex='0']",  # Accessibility attribute
-                "textarea"  # Generic fallback
-            ]
-            
-            textarea = None
-            for selector in textarea_selectors:
-                try:
-                    textarea = WebDriverWait(self.driver, 10).until(
-                        EC.presence_of_element_located((By.CSS_SELECTOR, selector))
-                    )
-                    if textarea:
-                        logger.info(f"Found textarea with selector: {selector}")
-                        break
-                except:
-                    continue
-            
-            if not textarea:
-                logger.error("Could not find textarea element")
-                return False
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"Sending response via Selenium (attempt {attempt + 1}/{max_retries})...")
+                
+                # Sanitize response to handle emojis and special characters
+                message = self._sanitize_text(message)
+                
+                # Add system identifier prefix to the message
+                message = "[SYSID:AI123] " + message
+                
+                # Find textarea using the most specific selectors first
+                textarea_selectors = [
+                    "#prompt-textarea",  # New ChatGPT primary selector
+                    "textarea[data-id='prompt-textarea']",
+                    "textarea.m-0",  # New ChatGPT specific class
+                    "textarea[placeholder*='Send a message']",  # Placeholder text
+                    "textarea[tabindex='0']",  # Accessibility attribute
+                    "textarea"  # Generic fallback
+                ]
+                
+                textarea = None
+                for selector in textarea_selectors:
+                    try:
+                        textarea = WebDriverWait(self.driver, 5).until(
+                            EC.presence_of_element_located((By.CSS_SELECTOR, selector))
+                        )
+                        if textarea:
+                            logger.info(f"Found textarea with selector: {selector}")
+                            break
+                    except:
+                        continue
+                
+                if not textarea:
+                    raise Exception("Could not find textarea element")
 
-            # First make sure the textarea is in view and interactable
-            self.driver.execute_script("""
-                arguments[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
-            """, textarea)
-            time.sleep(1)  # Wait for scroll and any animations
-            
-            # Clear the textarea first
-            try:
-                textarea.clear()
-                time.sleep(0.5)
-            except Exception as e:
-                logger.warning(f"Could not clear textarea normally: {e}")
-                # Try with JavaScript
+                # First make sure the textarea is in view and interactable
+                self.driver.execute_script("""
+                    arguments[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+                """, textarea)
+                time.sleep(0.5)  # Reduced wait time for scroll
+                
+                # Clear the textarea first
                 try:
-                    self.driver.execute_script("arguments[0].value = '';", textarea)
+                    textarea.clear()
+                    time.sleep(0.2)  # Reduced wait time
                 except Exception as e:
-                    logger.error(f"Failed to clear textarea: {e}")
-            
-            # Try three approaches to input text, in order of preference:
-            
-            # 1. First try direct send_keys method (most reliable)
-            try:
-                # Send entire message at once
-                textarea.send_keys(message)
-                logger.info("Entered text using send_keys method")
-                success = True
-            except Exception as e:
-                logger.warning(f"Could not use send_keys to input text: {e}")
+                    logger.warning(f"Could not clear textarea normally: {e}")
+                    try:
+                        self.driver.execute_script("arguments[0].value = '';", textarea)
+                    except Exception as e:
+                        logger.error(f"Failed to clear textarea: {e}")
+                
                 success = False
-            
-            # 2. If send_keys failed, try JavaScript approach
-            if not success:
+                
+                # 1. First try direct send_keys method (most reliable)
                 try:
-                    self.driver.execute_script("""
-                        const textarea = arguments[0];
-                        const response = arguments[1];
-                        
-                        // Force clear and set value
-                        textarea.value = '';
-                        textarea.value = response;
-                        
-                        // Trigger all relevant events
-                        const events = ['input', 'change', 'keyup', 'keydown', 'keypress'];
-                        events.forEach(eventType => {
-                            textarea.dispatchEvent(new Event(eventType, { bubbles: true }));
-                        });
-                        
-                        // Force enable any submit buttons
-                        document.querySelectorAll('button[type="submit"], button[data-testid="send-button"]')
-                            .forEach(btn => btn.disabled = false);
-                    """, textarea, message)
-                    logger.info("Entered text using JavaScript method")
+                    textarea.send_keys(message)
+                    logger.info("Entered text using send_keys method")
                     success = True
                 except Exception as e:
-                    logger.error(f"Error setting textarea value with JavaScript: {e}")
-                    success = False
-            
-            # 3. Last resort - try to paste text from clipboard
-            if not success:
+                    logger.warning(f"Could not use send_keys to input text: {e}")
+                
+                # 2. If send_keys failed, try JavaScript approach
+                if not success:
+                    try:
+                        self.driver.execute_script("""
+                            const textarea = arguments[0];
+                            const response = arguments[1];
+                            textarea.value = response;
+                            textarea.dispatchEvent(new Event('input', { bubbles: true }));
+                            textarea.dispatchEvent(new Event('change', { bubbles: true }));
+                        """, textarea, message)
+                        logger.info("Entered text using JavaScript method")
+                        success = True
+                    except Exception as e:
+                        logger.warning(f"Could not use JavaScript to input text: {e}")
+                
+                # 3. Last resort - try to paste text from clipboard
+                if not success:
+                    try:
+                        import pyperclip
+                        pyperclip.copy(message)
+                        textarea.send_keys(Keys.CONTROL, 'v')
+                        time.sleep(0.2)
+                        logger.info("Entered text using clipboard paste method")
+                        success = True
+                    except Exception as e:
+                        logger.error(f"Failed to paste text from clipboard: {e}")
+                
+                if not success:
+                    raise Exception("All text input methods failed")
+                
+                # Find and click submit button
+                button_selectors = [
+                    "button[data-testid='send-button']",
+                    "button.absolute.p-1",
+                    "button[class*='bottom-right']",
+                    "button[type='submit']"
+                ]
+                
+                send_button = None
+                for selector in button_selectors:
+                    try:
+                        send_button = WebDriverWait(self.driver, 5).until(
+                            EC.element_to_be_clickable((By.CSS_SELECTOR, selector))
+                        )
+                        if send_button:
+                            logger.info(f"Found submit button with selector: {selector}")
+                            break
+                    except:
+                        continue
+                
+                if send_button:
+                    try:
+                        # Try clicking with JavaScript first
+                        self.driver.execute_script("arguments[0].click();", send_button)
+                        logger.info("Successfully clicked send button")
+                        time.sleep(0.5)
+                        return True
+                    except Exception as e:
+                        logger.warning(f"JavaScript click failed, trying normal click: {e}")
+                        try:
+                            send_button.click()
+                            logger.info("Successfully clicked send button with normal click")
+                            time.sleep(0.5)
+                            return True
+                        except Exception as e2:
+                            logger.warning(f"Normal click failed, trying ActionChains: {e2}")
+                            try:
+                                from selenium.webdriver.common.action_chains import ActionChains
+                                actions = ActionChains(self.driver)
+                                actions.move_to_element(send_button).click().perform()
+                                logger.info("Successfully clicked send button with ActionChains")
+                                time.sleep(0.5)
+                                return True
+                            except Exception as e3:
+                                logger.error(f"All click methods failed: {e3}")
+                
+                # If button click failed, try Enter key as last resort
                 try:
-                    import pyperclip
-                    pyperclip.copy(message)
-                    
-                    # Use keyboard shortcut to paste
-                    textarea.send_keys(Keys.CONTROL, 'v')
+                    textarea.send_keys(Keys.RETURN)
+                    logger.info("Sent response using Enter key")
                     time.sleep(0.5)
-                    logger.info("Entered text using clipboard paste method")
-                    success = True
-                except Exception as e:
-                    logger.error(f"Failed to paste text from clipboard: {e}")
-                    success = False
-            
-            if not success:
-                logger.error("All text input methods failed")
-                return False
-            
-            # Give the UI a moment to update
-            time.sleep(1)
-
-            # Find and click submit button - VÁLTOZÁS 1: WebDriverWait a DOM frissülés kezelésére
-            send_button = None
-            button_selectors = [
-                "button[data-testid='send-button']",
-                "button.absolute.p-1",  # New ChatGPT send button class
-                "button[class*='bottom-right']",
-                "button[type='submit']"
-            ]
-            
-            for selector in button_selectors:
-                try:
-                    send_button = WebDriverWait(self.driver, 10).until(
-                        EC.element_to_be_clickable((By.CSS_SELECTOR, selector))
-                    )
-                    if send_button:
-                        logger.info(f"Found submit button with selector: {selector}")
-                        break
-                except:
-                    continue
-            
-            if send_button:
-                try:
-                    # Try clicking with JavaScript
-                    self.driver.execute_script("arguments[0].click();", send_button)
-                    logger.info("Successfully clicked send button")
-                    time.sleep(1)
-                    return True  # VÁLTOZÁS 2: return True hozzáadva, hogy ne próbálkozzon másik módszerrel
-                except Exception as e:
-                    logger.error(f"Failed to click send button: {e}")
-            
-            # If button click failed, try Enter key as last resort
-            try:
-                textarea.send_keys(Keys.RETURN)
-                logger.info("Sent response using Enter key")
-                time.sleep(1)
-                return True
-            except Exception as e:
-                logger.error(f"Failed to send with Enter key: {e}")
-                
-                # One last attempt - try clicking the button with action chains
-                try:
-                    from selenium.webdriver.common.action_chains import ActionChains
-                    actions = ActionChains(self.driver)
-                    actions.move_to_element(send_button).click().perform()
-                    logger.info("Clicked send button using ActionChains")
-                    time.sleep(1)
                     return True
-                except Exception as e2:
-                    logger.error(f"Failed to click with ActionChains: {e2}")
-                    return False
+                except Exception as e:
+                    logger.error(f"Failed to send with Enter key: {e}")
+                    raise Exception("All send methods failed")
+
+            except Exception as e:
+                if "invalid session id" in str(e).lower():
+                    logger.error("Invalid session ID detected, attempting to reconnect browser...")
+                    try:
+                        self._reconnect_browser()
+                        if attempt < max_retries - 1:
+                            logger.info("Browser reconnected, retrying response...")
+                            continue
+                    except Exception as re:
+                        logger.error(f"Failed to reconnect browser: {re}")
                 
-        except Exception as e:
-            logger.error(f"Error sending response via Selenium: {e}")
-            return False
-            
+                logger.error(f"Error sending response via Selenium (attempt {attempt + 1}): {e}")
+                if attempt < max_retries - 1:
+                    logger.info(f"Retrying in 1 second...")
+                    time.sleep(1)
+                    continue
+                else:
+                    logger.error("All retries failed")
+                    return False
+        
+        return False
+
     def _sanitize_text(self, text):
         """Sanitize text to handle emojis and special characters"""
         try:
@@ -1347,7 +1413,7 @@ class AICommandHandler:
         
         file_path = None
         for pattern in file_patterns:
-            match = re.search(pattern, content)
+            match = re.search(pattern)
             if match:
                 file_path = match.group(1)
                 # Remove the file path from content to get instruction
@@ -1402,14 +1468,14 @@ class AICommandHandler:
             "type", "cat"
         ]
         
-        cmd_content = command[4:].strip().lower()
+        cmd_content = command[4:].strip()
         return any(cmd_content.startswith(cmd) for cmd in simple_commands)
 
     def _handle_simple_command(self, command: str) -> str:
         """
         Egyszerű parancsok végrehajtása helyben, Python kódban.
         """
-        cmd_content = command[4:].trip()
+        cmd_content = command[4:].strip()
         
         # Echo parancs kezelése
         if cmd_content.lower().startswith("echo"):
@@ -1576,7 +1642,7 @@ class AICommandHandler:
                     self.command_stats["errors"] += 1
                     
                     try:
-                        os.makedirs("logs", exist_oké=True)  # Ensure logs directory exists
+                        os.makedirs("logs", exist_ok=True)  # Ensure logs directory exists
                         with open("logs/critical.log", "a", encoding="utf-8") as f:
                             f.write(log_msg + "\n")
                     except Exception as log_e:
@@ -1623,7 +1689,7 @@ class AICommandHandler:
         try:
             # Clean the text - remove CMD: prefix if present
             if json_text.startswith("CMD:"):
-                json_text = json_text[4:].trip()
+                json_text = json_text[4:].strip()
                 
             # Parse the JSON
             data = json.loads(json_text)

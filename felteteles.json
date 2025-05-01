@@ -1,0 +1,1 @@
+{"parancsok": [{"feltetel": true, "utasitas": "echo Feltetel teljesult"}, {"feltetel": false, "utasitas": "echo Ez nem fut le"}]} 
