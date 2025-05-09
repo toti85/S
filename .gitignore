@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+*.egg
+.env
+.venv/
+venv/
+ENV/
+
+# Project-S specific
+archive/
+screenshots/
+replay/
+models/
+*.log
+*.pkl
+/llama.cpp/
+.vscode/
+
+# Git
+.git/
+
+# Temp files
+*.tmp
+*.bak
+*.swp
